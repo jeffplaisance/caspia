@@ -45,7 +45,7 @@ public final class LogClient {
             final List<Boolean> responses = Quorum.broadcast(replicas, n-f, replica -> replica.writeAtomic(index, 1, 1, value, true, 0, 0), false);
             if (Base.sum(responses) >= n-f) return true;
         }
-        final List<LogReplicaResponse> initialValues = Quorum.broadcast(replicas, n-f, replica -> replica.read(index), LogReplicaResponse.FAILURE);
+        final List<LogReplicaResponse> initialValues = Quorum.broadcast(replicas, n-f, replica -> replica.read(index), LogReplicaResponse.EMPTY);
         return write2(index, value, 0, initialValues);
     }
 
@@ -89,7 +89,7 @@ public final class LogClient {
 
     @Nullable
     public byte[] read(long index) throws Exception {
-        final List<LogReplicaResponse> responses = Quorum.broadcast(replicas, n-f, replica -> replica.read(index), LogReplicaResponse.FAILURE);
+        final List<LogReplicaResponse> responses = Quorum.broadcast(replicas, n-f, replica -> replica.read(index), LogReplicaResponse.EMPTY);
         final LogReplicaResponse maxResponse = responses.stream().max(MAX_ACCEPTED).orElse(LogReplicaResponse.EMPTY);
         if (maxResponse.getAccepted() == 0) return null;
         final long maxAcceptedCount = responses.stream().filter(r -> r.getAccepted() == maxResponse.getAccepted()).count();

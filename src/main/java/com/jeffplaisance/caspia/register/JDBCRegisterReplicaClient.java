@@ -77,7 +77,6 @@ public final class JDBCRegisterReplicaClient implements RegisterReplicaClient {
             try (final ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return RegisterReplicaResponse.EMPTY;
                 return new RegisterReplicaResponse(
-                        true,
                         rs.getLong(1),
                         rs.getLong(2),
                         rs.getBytes(3),

@@ -101,7 +101,7 @@ public final class RegisterClient<T> {
 
     private List<RegisterReplicaResponse> readInitial() throws Exception {
         while (true) {
-            final List<RegisterReplicaResponse> initialValues = Quorum.broadcast(replicas, n - f, replica -> replica.read(id), RegisterReplicaResponse.FAILURE);
+            final List<RegisterReplicaResponse> initialValues = Quorum.broadcast(replicas, n - f, replica -> replica.read(id), RegisterReplicaResponse.EMPTY);
             final RegisterReplicaResponse maxInitial = initialValues.stream().max(MAX_ACCEPTED).orElse(RegisterReplicaResponse.EMPTY);
             if (maxInitial.getAccepted() > 0) {
                 final List<Long> maxAcceptedQuorum = Longs.asList(maxInitial.getReplicas());

@@ -27,7 +27,7 @@ public final class JDBCLogReplicaClient implements LogReplicaClient {
             ps.setLong(1, id);
             try (final ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return LogReplicaResponse.EMPTY;
-                return new LogReplicaResponse(true, rs.getInt(1), rs.getInt(2), rs.getBytes(3));
+                return new LogReplicaResponse(rs.getInt(1), rs.getInt(2), rs.getBytes(3));
             }
         }
     }
