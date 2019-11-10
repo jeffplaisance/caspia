@@ -71,7 +71,7 @@ public final class JDBCRegisterReplicaClient implements RegisterReplicaClient {
         if (!enabled) throw new IOException();
         try (
                 final Connection c = ds.getConnection();
-                final PreparedStatement ps = c.prepareStatement("select proposal, accepted, val, replicas, quorum_modified = ?, changed_replica = ? from "+table+" where id = ?")
+                final PreparedStatement ps = c.prepareStatement("select proposal, accepted, val, replicas, quorum_modified, changed_replica from "+table+" where id = ?")
         ) {
             ps.setObject(1, id);
             try (final ResultSet rs = ps.executeQuery()) {

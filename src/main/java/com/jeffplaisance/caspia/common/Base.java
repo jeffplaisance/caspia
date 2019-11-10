@@ -12,6 +12,6 @@ public final class Base {
     }
 
     public static int lessThanHalf(int n) {
-        return (n&~1)>>1;
+        return (n-1)>>>1;
     }
 }
