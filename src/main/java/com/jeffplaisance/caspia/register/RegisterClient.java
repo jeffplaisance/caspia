@@ -177,7 +177,7 @@ public final class RegisterClient<T> {
                                 newProposal,
                                 response.getAccepted(),
                                 response.getValue(),
-                                response.getReplicas() != null ? response.getReplicas() : Longs.toArray(replicas.stream().map(RegisterReplicaClient::getReplicaId).collect(Collectors.toList())),
+                                response.getReplicas() != null ? response.getReplicas() : new long[0],
                                 response.getQuorumModified(),
                                 response.getChangedReplica(),
                                 response.getProposal() == 0,
