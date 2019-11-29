@@ -10,10 +10,14 @@ A distributed log which stores a sequence of values, each of which is immutable 
 
 Both the register and the log contain optimizations allowing for a stable client to do consecutive writes in only 1 round trip. When the active client changes, 3 round trips are required for the register protocol and 2 round trips are required by the log protocol (plus any additional round trips which may be needed by the new client to replay actions added to the log by the previous client). These protocols are intended to be used as the persistence layer for systems with a stable leader, and as such the vast majority of writes should complete in 1 round trip.
 
+Currently an implementation is provided in java using MariaDB or MySQL as the backing storage.
+
 Future extensions include:
-1. Erasure coded (instead of replicated) log and write-once register implementations
-2. Better documentation, explanations, and formal proofs
-3. A paper
+1. Support for more languages
+2. Support for more backing stores
+3. Erasure coded (instead of replicated) log and write-once register implementations
+4. Better documentation, explanations, and formal proofs
+5. A paper
 
 References:
 1. [CASPaxos](https://arxiv.org/abs/1802.07000)
