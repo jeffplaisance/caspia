@@ -68,6 +68,11 @@ public final class RegisterClient<T> {
         return write(x -> x, update).getSecond();
     }
 
+    @Nullable
+    public T read() throws Exception {
+        return write(x -> x);
+    }
+
     private Pair<T, ReplicaUpdate> write(Function<T, T> updateValue, Function<List<Long>, ReplicaUpdate> updateReplicas) throws Exception {
         if (fastPath) {
             final T next = updateValue.apply(fastPathPreviousValue);
@@ -192,7 +197,7 @@ public final class RegisterClient<T> {
     }
 
     @Nullable
-    public T read() throws Exception {
+    public T readUnsafe() throws Exception {
         final List<RegisterReplicaResponse> responses = readInitial();
         final RegisterReplicaResponse maxResponse = responses.stream().max(MAX_ACCEPTED).orElse(RegisterReplicaResponse.EMPTY);
         if (maxResponse.getAccepted() == 0) return null;
