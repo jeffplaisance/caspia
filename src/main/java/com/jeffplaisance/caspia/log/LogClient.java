@@ -1,6 +1,7 @@
 package com.jeffplaisance.caspia.log;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Throwables;
 import com.google.common.collect.Ordering;
 import com.google.common.primitives.Ints;
 import com.jeffplaisance.caspia.common.Base;
@@ -76,12 +77,18 @@ public final class LogClient {
             // this is true iff this client was the one to commit a non-null value at index-1
             // fast path always uses proposal number 1
             // any competing proposer will start at proposal number 2 and block fast path
-            if (index == fastPathIndex) {
-                final List<Boolean> responses = Quorum.broadcast(replicas, n - f, replica -> replica.writeAtomic(index, 1, 1, value, true, 0, 0), false);
-                if (Base.sum(responses) >= n - f) {
-                    fastPathIndex = index + 1;
-                    return true;
+            try {
+                if (index == fastPathIndex) {
+                    final List<Boolean> responses = Quorum.broadcast(replicas, n - f, replica -> replica.writeAtomic(index, 1, 1, value, true, 0, 0), false);
+                    if (Base.sum(responses) >= n - f) {
+                        fastPathIndex = index + 1;
+                        return true;
+                    }
                 }
+            } catch (Throwable t) {
+                fastPathIndex = -1;
+                Throwables.propagateIfInstanceOf(t, Exception.class);
+                throw Throwables.propagate(t);
             }
         }
         return false;
