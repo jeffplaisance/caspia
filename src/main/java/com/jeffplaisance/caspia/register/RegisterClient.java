@@ -95,17 +95,12 @@ public final class RegisterClient<T> {
                 fastPath = false;
                 fastPathProposal = 0;
                 fastPathPreviousValue = null;
-                /*
-                 * technically unnecessary to throw here, but if we don't we may end up applying the update function
-                 * twice in cases where fast path write succeeded on at least one replica but less than a quorum.
-                 * applying update twice would not be incorrect but would be extremely confusing if update is not
-                 * idempotent.
-                 */
                 throw new Exception();
             }
+        } else {
+            final List<RegisterReplicaResponse> initialValues = readInitial();
+            return write2(updateValue, updateReplicas, initialValues);
         }
-        final List<RegisterReplicaResponse> initialValues = readInitial();
-        return write2(updateValue, updateReplicas, initialValues);
     }
 
     private List<RegisterReplicaResponse> readInitial() throws Exception {

@@ -11,7 +11,6 @@ import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -49,8 +48,8 @@ public final class LogClient {
      * @return a return value of true means that value was committed at index. a return value of false means that a
      * value was already committed at index. it is possible for the committed value to be binary equivalent to value and
      * for this method to still return false if the same value had been proposed and accepted in an earlier round.
-     * @throws Exception an IOException is thrown if less than a quorum of responses is obtained (can be triggered by a
-     * conflicting client). this method does not retry on failures or conflicts. retry logic should be handled by the caller.
+     * @throws Exception if less than a quorum of responses is obtained (can be triggered by a conflicting client).
+     * this method does not retry on failures or conflicts. retry logic should be handled by the caller.
      */
     public boolean write(long index, byte[] value) throws Exception {
         // null is used as a sentinel value to signify that no value has been written at this index yet.
@@ -101,7 +100,7 @@ public final class LogClient {
      * LogReplicaResponse.EMPTY for replicas from which we did not receive a response.
      * @return the value that was written. reference equality of return value and input value is guaranteed if
      * input value was the value written.
-     * @throws Exception throws IOException if successful on less than a quorum or replicas
+     * @throws Exception if successful on less than a quorum or replicas
      */
     private @Nullable byte[] write2(final long index, final @Nullable byte[] value, final List<LogReplicaResponse> initialValues) throws Exception {
 
@@ -116,7 +115,7 @@ public final class LogClient {
      * @param initialValues the initial values
      * @param newProposal the proposal number to try, must be greater than all proposal numbers in initialValues
      * @return list of booleans indexed on replica corresponding to whether or not propose succeeded on that replica
-     * @throws Exception throws IOException if successful on less than a quorum or replicas
+     * @throws Exception if successful on less than a quorum or replicas
      */
     private List<Boolean> doPropose(long index, List<LogReplicaResponse> initialValues, int newProposal) throws Exception {
         // attempt to increase proposal to newProposal on all replicas leaving all other fields the same
@@ -134,7 +133,9 @@ public final class LogClient {
         final List<Boolean> proposeResponses = Quorum.broadcast(replicas, n-f, proposeFunctions, false);
 
         // check for success on a quorum of replicas, throw exception on failure
-        if (Base.sum(proposeResponses) < n-f) throw new IOException();
+        if (Base.sum(proposeResponses) < n-f) {
+            throw new Exception();
+        }
         return proposeResponses;
     }
 
@@ -147,7 +148,7 @@ public final class LogClient {
      * that replica
      * @return the value that was written. reference equality of return value and input value is guaranteed if input
      * value was the value written.
-     * @throws Exception throws IOException if successful on less than a quorum or replicas
+     * @throws Exception if successful on less than a quorum or replicas
      */
     private @Nullable byte[] doAccept(long index, @Nullable byte[] value, List<LogReplicaResponse> initialValues, int newProposal, List<Boolean> proposeResponses) throws Exception {
         // find the response with the highest accepted number from the replicas where propose succeeded
@@ -176,7 +177,9 @@ public final class LogClient {
         List<Boolean> acceptResponses = Quorum.broadcast(replicas, n-f, proposeResponses, acceptFunctions, Boolean.FALSE);
 
         // check for success on a quorum of replicas, return valueWritten on success and throw exception on failure
-        if (Base.sum(acceptResponses) < n-f) throw new IOException();
+        if (Base.sum(acceptResponses) < n-f) {
+            throw new Exception();
+        }
         return valueWritten;
     }
 
@@ -184,8 +187,8 @@ public final class LogClient {
      * @param index the index
      * @return the value written at the index or null if no value has been written at the index. a return value of null
      * implies that the values at all indices greater than index are also null.
-     * @throws Exception an IOException is thrown if less than a quorum of responses is obtained (can be triggered by a
-     * conflicting client). this method does not retry on failures or conflicts. retry logic should be handled by the caller.
+     * @throws Exception if less than a quorum of responses is obtained (can be triggered by a conflicting client).
+     * this method does not retry on failures or conflicts. retry logic should be handled by the caller.
      */
     @Nullable
     public byte[] read(long index) throws Exception {
