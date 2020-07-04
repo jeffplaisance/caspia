@@ -58,8 +58,7 @@ public final class RegisterClient<T> {
         }
     }
 
-    @Nullable
-    public T write(Function<T, T> update) throws Exception {
+    public @Nullable T write(Function<T, T> update) throws Exception {
         return write(update, x-> ReplicaUpdate.unmodified()).getValue();
     }
 
@@ -67,8 +66,7 @@ public final class RegisterClient<T> {
         return write(x -> x, update).getReplicaUpdate();
     }
 
-    @Nullable
-    public T read() throws Exception {
+    public @Nullable T read() throws Exception {
         return write(x -> x);
     }
 
@@ -128,9 +126,34 @@ public final class RegisterClient<T> {
     }
 
     private ValueAndReplicaUpdate<T> write2(Function<T, T> update, Function<List<Long>, ReplicaUpdate> updateReplicas, List<RegisterReplicaResponse> initialValues) throws Exception {
-
         final long newProposal = initialValues.stream().map(RegisterReplicaResponse::getProposal).reduce(1L, Math::max)+1;
         final List<Boolean> proposeResponses = doPropose(initialValues, newProposal);
+        return doAccept(update, updateReplicas, initialValues, newProposal, proposeResponses);
+    }
+
+    private List<Boolean> doPropose(List<RegisterReplicaResponse> initialValues, long newProposal) throws Exception {
+        final List<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>> proposeFunctions = initialValues.stream()
+                .<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>>map(
+                        response -> (replica -> replica.writeAtomic(
+                                id,
+                                newProposal,
+                                response.getAccepted(),
+                                response.getValue(),
+                                response.getReplicas() != null ? response.getReplicas() : new long[0],
+                                response.getQuorumModified(),
+                                response.getChangedReplica(),
+                                response.getProposal() == 0,
+                                response.getProposal(),
+                                response.getAccepted())))
+                .collect(Collectors.toList());
+        final List<Boolean> proposeResponses = Quorum.broadcast(replicas, n-f, proposeFunctions, false);
+        if (Base.sum(proposeResponses) < n-f) {
+            throw new Exception();
+        }
+        return proposeResponses;
+    }
+
+    private ValueAndReplicaUpdate<T> doAccept(Function<T, T> update, Function<List<Long>, ReplicaUpdate> updateReplicas, List<RegisterReplicaResponse> initialValues, long newProposal, List<Boolean> proposeResponses) throws Exception {
         final RegisterReplicaResponse maxInitial = IntStream.range(0, initialValues.size())
                 .filter(proposeResponses::get)
                 .mapToObj(initialValues::get)
@@ -171,28 +194,6 @@ public final class RegisterClient<T> {
         }
         enableFastPath(nextFastPathProposal, next, replicaUpdate);
         return new ValueAndReplicaUpdate<>(next, replicaUpdate);
-    }
-
-    private List<Boolean> doPropose(List<RegisterReplicaResponse> initialValues, long newProposal) throws Exception {
-        final List<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>> proposeFunctions = initialValues.stream()
-                .<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>>map(
-                        response -> (replica -> replica.writeAtomic(
-                                id,
-                                newProposal,
-                                response.getAccepted(),
-                                response.getValue(),
-                                response.getReplicas() != null ? response.getReplicas() : new long[0],
-                                response.getQuorumModified(),
-                                response.getChangedReplica(),
-                                response.getProposal() == 0,
-                                response.getProposal(),
-                                response.getAccepted())))
-                .collect(Collectors.toList());
-        final List<Boolean> proposeResponses = Quorum.broadcast(replicas, n-f, proposeFunctions, false);
-        if (Base.sum(proposeResponses) < n-f) {
-            throw new Exception();
-        }
-        return proposeResponses;
     }
 
     @Nullable
