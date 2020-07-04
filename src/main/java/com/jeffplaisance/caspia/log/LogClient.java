@@ -83,6 +83,8 @@ public final class LogClient {
                     if (Base.sum(responses) >= n - f) {
                         fastPathIndex = index + 1;
                         return true;
+                    } else {
+                        fastPathIndex = -1;
                     }
                 }
             } catch (Throwable t) {
