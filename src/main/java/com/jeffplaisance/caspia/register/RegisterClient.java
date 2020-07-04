@@ -2,7 +2,6 @@ package com.jeffplaisance.caspia.register;
 
 import com.google.common.collect.Ordering;
 import com.google.common.primitives.Longs;
-import com.indeed.util.core.Pair;
 import com.jeffplaisance.caspia.common.Base;
 import com.jeffplaisance.caspia.common.Quorum;
 import com.jeffplaisance.caspia.common.ThrowingFunction;
@@ -61,11 +60,11 @@ public final class RegisterClient<T> {
 
     @Nullable
     public T write(Function<T, T> update) throws Exception {
-        return write(update, x-> ReplicaUpdate.unmodified()).getFirst();
+        return write(update, x-> ReplicaUpdate.unmodified()).getValue();
     }
 
     public ReplicaUpdate modifyQuorum(Function<List<Long>, ReplicaUpdate> update) throws Exception {
-        return write(x -> x, update).getSecond();
+        return write(x -> x, update).getReplicaUpdate();
     }
 
     @Nullable
@@ -73,7 +72,7 @@ public final class RegisterClient<T> {
         return write(x -> x);
     }
 
-    private Pair<T, ReplicaUpdate> write(Function<T, T> updateValue, Function<List<Long>, ReplicaUpdate> updateReplicas) throws Exception {
+    private ValueAndReplicaUpdate<T> write(Function<T, T> updateValue, Function<List<Long>, ReplicaUpdate> updateReplicas) throws Exception {
         if (fastPath) {
             final T next = updateValue.apply(fastPathPreviousValue);
             final List<Long> replicaIds = replicas.stream().map(RegisterReplicaClient::getReplicaId).collect(Collectors.toList());
@@ -93,7 +92,7 @@ public final class RegisterClient<T> {
                     false);
             if (Base.sum(responses) >= n - f) {
                 enableFastPath(fastPathProposal + 1, next, replicaUpdate);
-                return Pair.of(next, replicaUpdate);
+                return new ValueAndReplicaUpdate<>(next, replicaUpdate);
             } else {
                 fastPath = false;
                 fastPathProposal = 0;
@@ -128,7 +127,7 @@ public final class RegisterClient<T> {
         }
     }
 
-    private Pair<T, ReplicaUpdate> write2(Function<T, T> update, Function<List<Long>, ReplicaUpdate> updateReplicas, List<RegisterReplicaResponse> initialValues) throws Exception {
+    private ValueAndReplicaUpdate<T> write2(Function<T, T> update, Function<List<Long>, ReplicaUpdate> updateReplicas, List<RegisterReplicaResponse> initialValues) throws Exception {
 
         final long newProposal = initialValues.stream().map(RegisterReplicaResponse::getProposal).reduce(1L, Math::max)+1;
         final List<Boolean> proposeResponses = doPropose(initialValues, newProposal);
@@ -171,7 +170,7 @@ public final class RegisterClient<T> {
             throw new Exception();
         }
         enableFastPath(nextFastPathProposal, next, replicaUpdate);
-        return Pair.of(next, replicaUpdate);
+        return new ValueAndReplicaUpdate<>(next, replicaUpdate);
     }
 
     private List<Boolean> doPropose(List<RegisterReplicaResponse> initialValues, long newProposal) throws Exception {
@@ -206,6 +205,24 @@ public final class RegisterClient<T> {
             final byte[] maxValueBytes = maxResponse.getValue();
             return maxValueBytes == null ? null : transcoder.fromBytes(maxValueBytes);
         }
-        return write2(x -> x, x -> ReplicaUpdate.unmodified(), responses).getFirst();
+        return write2(x -> x, x -> ReplicaUpdate.unmodified(), responses).getValue();
+    }
+
+    private static final class ValueAndReplicaUpdate<T> {
+        private final T value;
+        private final ReplicaUpdate replicaUpdate;
+
+        private ValueAndReplicaUpdate(T value, ReplicaUpdate replicaUpdate) {
+            this.value = value;
+            this.replicaUpdate = replicaUpdate;
+        }
+
+        public T getValue() {
+            return value;
+        }
+
+        private ReplicaUpdate getReplicaUpdate() {
+            return replicaUpdate;
+        }
     }
 }
