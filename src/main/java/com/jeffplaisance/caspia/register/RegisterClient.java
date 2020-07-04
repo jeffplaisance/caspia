@@ -1,5 +1,6 @@
 package com.jeffplaisance.caspia.register;
 
+import com.google.common.base.Throwables;
 import com.google.common.collect.Ordering;
 import com.google.common.primitives.Longs;
 import com.jeffplaisance.caspia.common.Base;
@@ -72,30 +73,35 @@ public final class RegisterClient<T> {
 
     private ValueAndReplicaUpdate<T> write(Function<T, T> updateValue, Function<List<Long>, ReplicaUpdate> updateReplicas) throws Exception {
         if (fastPath) {
-            final T next = updateValue.apply(fastPathPreviousValue);
-            final List<Long> replicaIds = replicas.stream().map(RegisterReplicaClient::getReplicaId).collect(Collectors.toList());
-            final ReplicaUpdate replicaUpdate = updateReplicas.apply(replicaIds);
-            final byte[] value = next == null ? null : transcoder.toBytes(next);
-            final List<Boolean> responses = Quorum.broadcast(replicas, n - f, replica -> replica.writeAtomic(
-                    id,
-                    fastPathProposal + 1,
-                    fastPathProposal,
-                    value,
-                    Longs.toArray(replicaIds),
-                    replicaUpdate.getType(),
-                    replicaUpdate.getChangedReplica(),
-                    false,
-                    fastPathProposal,
-                    fastPathProposal - 1),
-                    false);
-            if (Base.sum(responses) >= n - f) {
-                enableFastPath(fastPathProposal + 1, next, replicaUpdate);
-                return new ValueAndReplicaUpdate<>(next, replicaUpdate);
-            } else {
+            try {
+                final T next = updateValue.apply(fastPathPreviousValue);
+                final List<Long> replicaIds = replicas.stream().map(RegisterReplicaClient::getReplicaId).collect(Collectors.toList());
+                final ReplicaUpdate replicaUpdate = updateReplicas.apply(replicaIds);
+                final byte[] value = next == null ? null : transcoder.toBytes(next);
+                final List<Boolean> responses = Quorum.broadcast(replicas, n - f, replica -> replica.writeAtomic(
+                        id,
+                        fastPathProposal + 1,
+                        fastPathProposal,
+                        value,
+                        Longs.toArray(replicaIds),
+                        replicaUpdate.getType(),
+                        replicaUpdate.getChangedReplica(),
+                        false,
+                        fastPathProposal,
+                        fastPathProposal - 1),
+                        false);
+                if (Base.sum(responses) >= n - f) {
+                    enableFastPath(fastPathProposal + 1, next, replicaUpdate);
+                    return new ValueAndReplicaUpdate<>(next, replicaUpdate);
+                } else {
+                    throw new Exception();
+                }
+            } catch (Throwable t) {
                 fastPath = false;
                 fastPathProposal = 0;
                 fastPathPreviousValue = null;
-                throw new Exception();
+                Throwables.propagateIfInstanceOf(t, Exception.class);
+                throw Throwables.propagate(t);
             }
         } else {
             final List<RegisterReplicaResponse> initialValues = readInitial();

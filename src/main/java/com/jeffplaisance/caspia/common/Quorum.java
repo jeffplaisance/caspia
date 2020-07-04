@@ -47,8 +47,6 @@ public final class Quorum {
                         break;
                     }
                 } catch (ExecutionException e) {
-                    //LOG.warn("ruh roh", e);
-                    e.printStackTrace(System.err);
                     if (firstError == null) firstError = e.getCause();
                 }
             }
