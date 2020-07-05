@@ -1,13 +1,13 @@
 package com.jeffplaisance.caspia.log;
 
-import java.util.NoSuchElementException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Random;
-import java.util.concurrent.ConcurrentNavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
 
 public class LocalLogReplicaClient implements LogReplicaClient {
 
-    private final ConcurrentNavigableMap<Long, LogReplicaResponse> data = new ConcurrentSkipListMap<>();
+    private final List<List<LogReplicaResponse>> data = new ArrayList<>();
     private final double failureProbability;
     private final double delayProbability;
     private final int delayNs;
@@ -17,6 +17,7 @@ public class LocalLogReplicaClient implements LogReplicaClient {
         this.failureProbability = failureProbability;
         this.delayProbability = delayProbability;
         this.delayNs = delayNs;
+        data.add(null);
     }
 
     private void doNemesis() throws Exception {
@@ -30,31 +31,78 @@ public class LocalLogReplicaClient implements LogReplicaClient {
     @Override
     public LogReplicaResponse read(long index) throws Exception {
         doNemesis();
-        return data.getOrDefault(index, LogReplicaResponse.EMPTY);
+        final List<LogReplicaResponse> list;
+        synchronized (data) {
+            if (index >= data.size()) {
+                return LogReplicaResponse.EMPTY;
+            }
+            list = data.get((int) index);
+            if (list == null) {
+                return LogReplicaResponse.EMPTY;
+            }
+        }
+        synchronized (list) {
+            return list.get(list.size()-1);
+        }
     }
 
     @Override
     public boolean compareAndSet(long id, int proposal, int accepted, byte[] value, int expect_proposal, int expect_accepted) throws Exception {
         doNemesis();
-        final LogReplicaResponse update = new LogReplicaResponse(proposal, accepted, value);
-        final LogReplicaResponse current = data.computeIfPresent(id, (k, v) -> v.getAccepted() == expect_accepted && v.getProposal() == expect_proposal ? update : v);
-        return update == current;
+        final List<LogReplicaResponse> list;
+        synchronized (data) {
+            if (id >= data.size()) {
+                return false;
+            }
+            list = data.get((int) id);
+            if (list == null) {
+                return false;
+            }
+        }
+        synchronized (list) {
+            LogReplicaResponse current = list.get(list.size()-1);
+            if (current.getAccepted() == expect_accepted && current.getProposal() == expect_proposal) {
+                final LogReplicaResponse update = new LogReplicaResponse(proposal, accepted, value == null ? null : Arrays.copyOf(value, value.length));
+                list.add(update);
+                return true;
+            }
+            return false;
+        }
     }
 
     @Override
     public boolean putIfAbsent(long id, int proposal, int accepted, byte[] value) throws Exception {
         doNemesis();
-        final LogReplicaResponse update = new LogReplicaResponse(proposal, accepted, value);
-        return null == data.putIfAbsent(id, update);
+        synchronized (data) {
+            final LogReplicaResponse update = new LogReplicaResponse(proposal, accepted, value == null ? null : Arrays.copyOf(value, value.length));
+            List<LogReplicaResponse> list = new ArrayList<>();
+            list.add(update);
+            if (id < data.size()) {
+                if (data.get((int) id) == null) {
+                    data.set((int) id, list);
+                    return true;
+                }
+                return false;
+            }
+            while (id > data.size()) {
+                data.add(null);
+            }
+            if (id == data.size()) {
+                data.add(list);
+                return true;
+            } else {
+                final Exception e = new Exception("ruh roh");
+                e.printStackTrace(System.err);
+                throw e;
+            }
+        }
     }
 
     @Override
     public long readLastIndex() throws Exception {
         doNemesis();
-        try {
-            return data.lastKey();
-        } catch (NoSuchElementException e) {
-            return 1;
+        synchronized (data) {
+            return data.size()-1;
         }
     }
 }

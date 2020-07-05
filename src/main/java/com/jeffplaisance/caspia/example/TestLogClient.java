@@ -27,13 +27,12 @@ public class TestLogClient {
             );
             final int numClients = 2;
             final int iterations = 10000;
-            final ExecutorCompletionService ecs = new ExecutorCompletionService(threadPool);
-            final CyclicBarrier barrier = new CyclicBarrier(numClients);
+            final CyclicBarrier barrier = new CyclicBarrier(numClients+1);
             for (int i = 0; i < numClients; i++) {
                 final LogClient client = new LogClient(replicas);
                 clients.add(client);
                 final int clientIndex = i;
-                ecs.submit(() -> {
+                threadPool.submit(() -> {
                     final ArrayList<Integer> claimedIndexes = new ArrayList<>();
                     for (int i1 = 1; i1 <= iterations; i1++) {
                         while (true) {
@@ -41,7 +40,9 @@ public class TestLogClient {
                                 if (client.write(i1, Ints.toByteArray(clientIndex))) {
                                     claimedIndexes.add(i1);
                                 } else {
-                                    i1 = (int) client.readLastIndex();
+                                    final int newIndex = (int) client.readLastIndex();
+                                    //System.out.printf("client %d skipping from %d to %d\r\n", clientIndex, i1, newIndex);
+                                    i1 = Math.max(i1, newIndex-1);
                                 }
                                 break;
                             } catch (Exception e) {
@@ -70,16 +71,38 @@ public class TestLogClient {
                     System.out.printf("clientIndex = %d, success = %d\r\n", clientIndex, claimedIndexes.size());
                 }, null);
             }
-            for (int i = 0; i < numClients; i++) {
-                ecs.take();
+            final List<Integer> readerValues = new ArrayList<>();
+            readerValues.add(null);
+            final LogClient reader = new LogClient(replicas);
+            for (int i = 1; i <= iterations; i++) {
+                int loopCount = 0;
+                while (true) {
+                    try {
+                        final byte[] bytes = reader.read(i);
+                        if (bytes != null) {
+                            final int j = Ints.fromByteArray(bytes);
+                            if (j < 0 || j >= numClients) {
+                                System.err.println("ruh roh 4");
+                            }
+                            readerValues.add(j);
+                            break;
+                        }
+                    } catch (Exception e) {
+                        if (loopCount > 10000) {
+                            System.out.println(i);
+                        }
+                    }
+                    loopCount++;
+                }
             }
+            barrier.await();
             for (int i = 1; i <= iterations; i++) {
                 while (true) {
                     try {
-                        final byte[] bytes = clients.get(0).read(i);
+                        final byte[] bytes = reader.read(i);
                         if (bytes == null) {
                             System.err.println("ruh roh 2");
-                        } else if (Ints.fromByteArray(bytes) < 0 || Ints.fromByteArray(bytes) >= numClients) {
+                        } else if (Ints.fromByteArray(bytes) != readerValues.get(i)) {
                             System.err.println("ruh roh 3");
                         }
                         break;
