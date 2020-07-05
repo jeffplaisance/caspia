@@ -22,7 +22,7 @@ import java.util.stream.IntStream;
 public final class LogClient {
 
     private static final Logger LOG = LoggerFactory.getLogger(LogClient.class);
-    private static final Comparator<LogReplicaResponse> MAX_ACCEPTED = Ordering.from((LogReplicaResponse a, LogReplicaResponse b) -> Ints.compare(a.getAccepted(), b.getAccepted())).nullsFirst();
+    private static final Comparator<LogReplicaState> MAX_ACCEPTED = Ordering.from((LogReplicaState a, LogReplicaState b) -> Ints.compare(a.getAccepted(), b.getAccepted())).nullsFirst();
     private static final boolean fastPathEnabled;
     private static final boolean oneRoundTripReadsEnabled;
 
@@ -61,7 +61,7 @@ public final class LogClient {
 
         if (tryFastPathWrite(index, value)) return true;
 
-        final List<LogReplicaResponse> initialValues = readInitialValues(index);
+        final List<LogReplicaState> initialValues = readInitialValues(index);
         // reference equality check is intentional
         if (write2(index, value, initialValues) == value) {
             fastPathIndex = index+1;
@@ -96,8 +96,8 @@ public final class LogClient {
         return false;
     }
 
-    private List<LogReplicaResponse> readInitialValues(long index) throws Exception {
-        return Quorum.broadcast(replicas, n - f, replica -> replica.read(index), LogReplicaResponse.EMPTY);
+    private List<LogReplicaState> readInitialValues(long index) throws Exception {
+        return Quorum.broadcast(replicas, n - f, replica -> replica.read(index), LogReplicaState.EMPTY);
     }
 
     /**
@@ -111,10 +111,10 @@ public final class LogClient {
      * input value was the value written.
      * @throws Exception if successful on less than a quorum or replicas
      */
-    private @Nullable byte[] write2(final long index, final @Nullable byte[] value, final List<LogReplicaResponse> initialValues) throws Exception {
+    private @Nullable byte[] write2(final long index, final @Nullable byte[] value, final List<LogReplicaState> initialValues) throws Exception {
 
         // lowest possible value for newProposal is 2 since 1 is reserved for fast path
-        final int newProposal = initialValues.stream().map(LogReplicaResponse::getProposal).reduce(1, Math::max)+1;
+        final int newProposal = initialValues.stream().map(LogReplicaState::getProposal).reduce(1, Math::max)+1;
         final List<Boolean> proposeResponses = doPropose(index, initialValues, newProposal);
         return doAccept(index, value, initialValues, newProposal, proposeResponses);
     }
@@ -126,7 +126,7 @@ public final class LogClient {
      * @return list of booleans indexed on replica corresponding to whether or not propose succeeded on that replica
      * @throws Exception if successful on less than a quorum or replicas
      */
-    private List<Boolean> doPropose(long index, List<LogReplicaResponse> initialValues, int newProposal) throws Exception {
+    private List<Boolean> doPropose(long index, List<LogReplicaState> initialValues, int newProposal) throws Exception {
         // attempt to increase proposal to newProposal on all replicas leaving all other fields the same
         final List<ThrowingFunction<LogReplicaClient, Boolean, Exception>> proposeFunctions = initialValues.stream()
                 .<ThrowingFunction<LogReplicaClient, Boolean, Exception>>map(
@@ -159,13 +159,13 @@ public final class LogClient {
      * value was the value written.
      * @throws Exception if successful on less than a quorum or replicas
      */
-    private @Nullable byte[] doAccept(long index, @Nullable byte[] value, List<LogReplicaResponse> initialValues, int newProposal, List<Boolean> proposeResponses) throws Exception {
+    private @Nullable byte[] doAccept(long index, @Nullable byte[] value, List<LogReplicaState> initialValues, int newProposal, List<Boolean> proposeResponses) throws Exception {
         // find the response with the highest accepted number from the replicas where propose succeeded
-        final LogReplicaResponse maxInitial = IntStream.range(0, initialValues.size())
+        final LogReplicaState maxInitial = IntStream.range(0, initialValues.size())
                 .filter(proposeResponses::get)
                 .mapToObj(initialValues::get)
                 .max(MAX_ACCEPTED)
-                .orElse(LogReplicaResponse.EMPTY);
+                .orElse(LogReplicaState.EMPTY);
 
         // if a value has already been written at this index we need to make sure it is propagated
         // if no value has been written we can write our own value
@@ -203,12 +203,12 @@ public final class LogClient {
     public byte[] read(long index) throws Exception {
         Preconditions.checkArgument(index > 0);
 
-        final List<LogReplicaResponse> responses = readInitialValues(index);
+        final List<LogReplicaState> responses = readInitialValues(index);
 
         if (oneRoundTripReadsEnabled) {
             // this is an optimization to allow one round trip reads at indexes which have a non-null committed value.
             // this block is not required for correctness.
-            final LogReplicaResponse maxAccepted = responses.stream().max(MAX_ACCEPTED).orElse(LogReplicaResponse.EMPTY);
+            final LogReplicaState maxAccepted = responses.stream().max(MAX_ACCEPTED).orElse(LogReplicaState.EMPTY);
             final byte[] maxValue = maxAccepted.getValue();
             if (maxValue != null) {
                 final long maxAcceptedCount = responses.stream().filter(r -> r.getAccepted() == maxAccepted.getAccepted()).count();

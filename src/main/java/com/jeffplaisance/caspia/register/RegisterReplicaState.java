@@ -1,7 +1,7 @@
 package com.jeffplaisance.caspia.register;
 
-public final class RegisterReplicaResponse {
-    public static final RegisterReplicaResponse EMPTY = new RegisterReplicaResponse(0, 0, null, null, ReplicaUpdate.UNMODIFIED, 0);
+public final class RegisterReplicaState {
+    public static final RegisterReplicaState EMPTY = new RegisterReplicaState(0, 0, null, null, ReplicaUpdate.UNMODIFIED, 0);
     private final long proposal;
     private final long accepted;
     private final byte[] value;
@@ -9,7 +9,7 @@ public final class RegisterReplicaResponse {
     private final byte quorumModified;
     private final long changedReplica;
 
-    public RegisterReplicaResponse(long proposal, long accepted, byte[] value, long[] replicas, byte quorumModified, long changedReplica) {
+    public RegisterReplicaState(long proposal, long accepted, byte[] value, long[] replicas, byte quorumModified, long changedReplica) {
         this.proposal = proposal;
         this.accepted = accepted;
         this.value = value;

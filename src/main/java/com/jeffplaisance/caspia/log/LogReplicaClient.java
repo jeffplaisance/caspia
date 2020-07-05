@@ -2,7 +2,7 @@ package com.jeffplaisance.caspia.log;
 
 public interface LogReplicaClient {
 
-    LogReplicaResponse read(long index) throws Exception;
+    LogReplicaState read(long index) throws Exception;
 
     default boolean writeAtomic(
             long id,

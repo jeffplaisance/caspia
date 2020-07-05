@@ -67,7 +67,7 @@ public final class JDBCRegisterReplicaClient implements RegisterReplicaClient {
     }
 
     @Override
-    public RegisterReplicaResponse read(Object id) throws Exception {
+    public RegisterReplicaState read(Object id) throws Exception {
         if (!enabled) throw new IOException();
         try (
                 final Connection c = ds.getConnection();
@@ -75,8 +75,8 @@ public final class JDBCRegisterReplicaClient implements RegisterReplicaClient {
         ) {
             ps.setObject(1, id);
             try (final ResultSet rs = ps.executeQuery()) {
-                if (!rs.next()) return RegisterReplicaResponse.EMPTY;
-                return new RegisterReplicaResponse(
+                if (!rs.next()) return RegisterReplicaState.EMPTY;
+                return new RegisterReplicaState(
                         rs.getLong(1),
                         rs.getLong(2),
                         rs.getBytes(3),

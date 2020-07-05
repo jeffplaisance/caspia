@@ -18,7 +18,7 @@ public final class JDBCLogReplicaClient implements LogReplicaClient {
     }
 
     @Override
-    public LogReplicaResponse read(long id) throws Exception {
+    public LogReplicaState read(long id) throws Exception {
         if (!enabled) throw new IOException();
         try (
                 final Connection c = ds.getConnection();
@@ -26,8 +26,8 @@ public final class JDBCLogReplicaClient implements LogReplicaClient {
         ) {
             ps.setLong(1, id);
             try (final ResultSet rs = ps.executeQuery()) {
-                if (!rs.next()) return LogReplicaResponse.EMPTY;
-                return new LogReplicaResponse(rs.getInt(1), rs.getInt(2), rs.getBytes(3));
+                if (!rs.next()) return LogReplicaState.EMPTY;
+                return new LogReplicaState(rs.getInt(1), rs.getInt(2), rs.getBytes(3));
             }
         }
     }

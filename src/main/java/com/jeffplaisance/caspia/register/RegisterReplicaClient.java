@@ -4,7 +4,7 @@ import java.io.Closeable;
 
 public interface RegisterReplicaClient extends Closeable {
 
-    RegisterReplicaResponse read(Object index) throws Exception;
+    RegisterReplicaState read(Object index) throws Exception;
 
     default boolean writeAtomic(
             Object id,

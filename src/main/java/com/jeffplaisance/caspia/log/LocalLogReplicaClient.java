@@ -7,7 +7,7 @@ import java.util.Random;
 
 public class LocalLogReplicaClient implements LogReplicaClient {
 
-    private final List<List<LogReplicaResponse>> data = new ArrayList<>();
+    private final List<List<LogReplicaState>> data = new ArrayList<>();
     private final double failureProbability;
     private final double delayProbability;
     private final int delayNs;
@@ -29,16 +29,16 @@ public class LocalLogReplicaClient implements LogReplicaClient {
     }
 
     @Override
-    public LogReplicaResponse read(long index) throws Exception {
+    public LogReplicaState read(long index) throws Exception {
         doNemesis();
-        final List<LogReplicaResponse> list;
+        final List<LogReplicaState> list;
         synchronized (data) {
             if (index >= data.size()) {
-                return LogReplicaResponse.EMPTY;
+                return LogReplicaState.EMPTY;
             }
             list = data.get((int) index);
             if (list == null) {
-                return LogReplicaResponse.EMPTY;
+                return LogReplicaState.EMPTY;
             }
         }
         synchronized (list) {
@@ -49,7 +49,7 @@ public class LocalLogReplicaClient implements LogReplicaClient {
     @Override
     public boolean compareAndSet(long id, int proposal, int accepted, byte[] value, int expect_proposal, int expect_accepted) throws Exception {
         doNemesis();
-        final List<LogReplicaResponse> list;
+        final List<LogReplicaState> list;
         synchronized (data) {
             if (id >= data.size()) {
                 return false;
@@ -60,9 +60,9 @@ public class LocalLogReplicaClient implements LogReplicaClient {
             }
         }
         synchronized (list) {
-            LogReplicaResponse current = list.get(list.size()-1);
+            LogReplicaState current = list.get(list.size()-1);
             if (current.getAccepted() == expect_accepted && current.getProposal() == expect_proposal) {
-                final LogReplicaResponse update = new LogReplicaResponse(proposal, accepted, value == null ? null : Arrays.copyOf(value, value.length));
+                final LogReplicaState update = new LogReplicaState(proposal, accepted, value == null ? null : Arrays.copyOf(value, value.length));
                 list.add(update);
                 return true;
             }
@@ -74,8 +74,8 @@ public class LocalLogReplicaClient implements LogReplicaClient {
     public boolean putIfAbsent(long id, int proposal, int accepted, byte[] value) throws Exception {
         doNemesis();
         synchronized (data) {
-            final LogReplicaResponse update = new LogReplicaResponse(proposal, accepted, value == null ? null : Arrays.copyOf(value, value.length));
-            List<LogReplicaResponse> list = new ArrayList<>();
+            final LogReplicaState update = new LogReplicaState(proposal, accepted, value == null ? null : Arrays.copyOf(value, value.length));
+            List<LogReplicaState> list = new ArrayList<>();
             list.add(update);
             if (id < data.size()) {
                 if (data.get((int) id) == null) {

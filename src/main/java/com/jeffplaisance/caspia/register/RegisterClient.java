@@ -18,7 +18,7 @@ import java.util.stream.IntStream;
 
 public final class RegisterClient<T> {
     private static final Logger LOG = LoggerFactory.getLogger(RegisterClient.class);
-    private static final Comparator<RegisterReplicaResponse> MAX_ACCEPTED = Ordering.from((RegisterReplicaResponse a, RegisterReplicaResponse b) -> Longs.compare(a.getAccepted(), b.getAccepted())).nullsFirst();
+    private static final Comparator<RegisterReplicaState> MAX_ACCEPTED = Ordering.from((RegisterReplicaState a, RegisterReplicaState b) -> Longs.compare(a.getAccepted(), b.getAccepted())).nullsFirst();
 
     private List<RegisterReplicaClient> replicas;
     private final Function<Long, ? extends RegisterReplicaClient> replicaLoader;
@@ -104,15 +104,15 @@ public final class RegisterClient<T> {
                 throw Throwables.propagate(t);
             }
         } else {
-            final List<RegisterReplicaResponse> initialValues = readInitial();
+            final List<RegisterReplicaState> initialValues = readInitial();
             return write2(updateValue, updateReplicas, initialValues);
         }
     }
 
-    private List<RegisterReplicaResponse> readInitial() throws Exception {
+    private List<RegisterReplicaState> readInitial() throws Exception {
         while (true) {
-            final List<RegisterReplicaResponse> initialValues = Quorum.broadcast(replicas, n - f, replica -> replica.read(id), RegisterReplicaResponse.EMPTY);
-            final RegisterReplicaResponse maxInitial = initialValues.stream().max(MAX_ACCEPTED).orElse(RegisterReplicaResponse.EMPTY);
+            final List<RegisterReplicaState> initialValues = Quorum.broadcast(replicas, n - f, replica -> replica.read(id), RegisterReplicaState.EMPTY);
+            final RegisterReplicaState maxInitial = initialValues.stream().max(MAX_ACCEPTED).orElse(RegisterReplicaState.EMPTY);
             if (maxInitial.getAccepted() > 0) {
                 final List<Long> maxAcceptedQuorum = Longs.asList(maxInitial.getReplicas());
                 if (new HashSet<>(maxAcceptedQuorum).equals(replicas.stream().map(RegisterReplicaClient::getReplicaId).collect(Collectors.toSet()))) {
@@ -126,13 +126,13 @@ public final class RegisterClient<T> {
         }
     }
 
-    private ValueAndReplicaUpdate<T> write2(Function<T, T> update, Function<List<Long>, ReplicaUpdate> updateReplicas, List<RegisterReplicaResponse> initialValues) throws Exception {
-        final long newProposal = initialValues.stream().map(RegisterReplicaResponse::getProposal).reduce(1L, Math::max)+1;
+    private ValueAndReplicaUpdate<T> write2(Function<T, T> update, Function<List<Long>, ReplicaUpdate> updateReplicas, List<RegisterReplicaState> initialValues) throws Exception {
+        final long newProposal = initialValues.stream().map(RegisterReplicaState::getProposal).reduce(1L, Math::max)+1;
         final List<Boolean> proposeResponses = doPropose(initialValues, newProposal);
         return doAccept(update, updateReplicas, initialValues, newProposal, proposeResponses);
     }
 
-    private List<Boolean> doPropose(List<RegisterReplicaResponse> initialValues, long newProposal) throws Exception {
+    private List<Boolean> doPropose(List<RegisterReplicaState> initialValues, long newProposal) throws Exception {
         final List<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>> proposeFunctions = initialValues.stream()
                 .<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>>map(
                         response -> (replica -> replica.writeAtomic(
@@ -154,12 +154,12 @@ public final class RegisterClient<T> {
         return proposeResponses;
     }
 
-    private ValueAndReplicaUpdate<T> doAccept(Function<T, T> update, Function<List<Long>, ReplicaUpdate> updateReplicas, List<RegisterReplicaResponse> initialValues, long newProposal, List<Boolean> proposeResponses) throws Exception {
-        final RegisterReplicaResponse maxInitial = IntStream.range(0, initialValues.size())
+    private ValueAndReplicaUpdate<T> doAccept(Function<T, T> update, Function<List<Long>, ReplicaUpdate> updateReplicas, List<RegisterReplicaState> initialValues, long newProposal, List<Boolean> proposeResponses) throws Exception {
+        final RegisterReplicaState maxInitial = IntStream.range(0, initialValues.size())
                 .filter(proposeResponses::get)
                 .mapToObj(initialValues::get)
                 .max(MAX_ACCEPTED)
-                .orElse(RegisterReplicaResponse.EMPTY);
+                .orElse(RegisterReplicaState.EMPTY);
         final byte[] maxValue = maxInitial.getValue();
         final T next = update.apply(maxValue == null ? null : transcoder.fromBytes(maxValue));
         final byte[] nextValue = next == null ? null : transcoder.toBytes(next);
@@ -199,8 +199,8 @@ public final class RegisterClient<T> {
 
     @Nullable
     public T readUnsafe() throws Exception {
-        final List<RegisterReplicaResponse> responses = readInitial();
-        final RegisterReplicaResponse maxResponse = responses.stream().max(MAX_ACCEPTED).orElse(RegisterReplicaResponse.EMPTY);
+        final List<RegisterReplicaState> responses = readInitial();
+        final RegisterReplicaState maxResponse = responses.stream().max(MAX_ACCEPTED).orElse(RegisterReplicaState.EMPTY);
         if (maxResponse.getAccepted() == 0) return null;
         final long maxAcceptedCount = responses.stream().filter(r -> r.getAccepted() == maxResponse.getAccepted()).count();
         if (maxAcceptedCount >= n-f) {
