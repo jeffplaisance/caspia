@@ -79,7 +79,7 @@ public final class LogClient {
             // any competing proposer will start at proposal number 2 and block fast path
             try {
                 if (index == fastPathIndex) {
-                    final List<Boolean> responses = Quorum.broadcast(replicas, n - f, replica -> replica.writeAtomic(index, 1, 1, value, true, 0, 0), false);
+                    final List<Boolean> responses = Quorum.broadcast(replicas, n - f, replica -> replica.writeAtomic(index, 1, 1, value, true, LogReplicaState.EMPTY), false);
                     if (Base.sum(responses) >= n - f) {
                         fastPathIndex = index + 1;
                         return true;
@@ -136,8 +136,7 @@ public final class LogClient {
                                 response.getAccepted(),
                                 response.getValue(),
                                 response.getProposal() == 0,
-                                response.getProposal(),
-                                response.getAccepted())))
+                                response)))
                 .collect(Collectors.toList());
         final List<Boolean> proposeResponses = Quorum.broadcast(replicas, n-f, proposeFunctions, false);
 
@@ -180,8 +179,7 @@ public final class LogClient {
                                 newProposal,
                                 valueWritten,
                                 false,
-                                newProposal,
-                                response.getAccepted())))
+                                new LogReplicaState(newProposal, response.getAccepted(), response.getValue()))))
                 .collect(Collectors.toList());
         List<Boolean> acceptResponses = Quorum.broadcast(replicas, n-f, proposeResponses, acceptFunctions, Boolean.FALSE);
 

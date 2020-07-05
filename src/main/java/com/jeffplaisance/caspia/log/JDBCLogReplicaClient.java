@@ -33,7 +33,7 @@ public final class JDBCLogReplicaClient implements LogReplicaClient {
     }
 
     @Override
-    public boolean compareAndSet(long id, int proposal, int accepted, byte[] value, int expect_proposal, int expect_accepted) throws Exception {
+    public boolean compareAndSet(long id, int proposal, int accepted, byte[] value, LogReplicaState expect) throws Exception {
         if (!enabled) throw new IOException();
         try (
                 final Connection c = ds.getConnection();
@@ -43,8 +43,8 @@ public final class JDBCLogReplicaClient implements LogReplicaClient {
             ps.setInt(2, accepted);
             ps.setBytes(3, value);
             ps.setLong(4, id);
-            ps.setInt(5, expect_proposal);
-            ps.setInt(6, expect_accepted);
+            ps.setInt(5, expect.getProposal());
+            ps.setInt(6, expect.getAccepted());
             return ps.executeUpdate() > 0;
         }
     }

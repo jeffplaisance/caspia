@@ -47,7 +47,7 @@ public class LocalLogReplicaClient implements LogReplicaClient {
     }
 
     @Override
-    public boolean compareAndSet(long id, int proposal, int accepted, byte[] value, int expect_proposal, int expect_accepted) throws Exception {
+    public boolean compareAndSet(long id, int proposal, int accepted, byte[] value, LogReplicaState expect) throws Exception {
         doNemesis();
         final List<LogReplicaState> list;
         synchronized (data) {
@@ -61,7 +61,7 @@ public class LocalLogReplicaClient implements LogReplicaClient {
         }
         synchronized (list) {
             LogReplicaState current = list.get(list.size()-1);
-            if (current.getAccepted() == expect_accepted && current.getProposal() == expect_proposal) {
+            if (current.getAccepted() == expect.getAccepted() && current.getProposal() == expect.getProposal()) {
                 final LogReplicaState update = new LogReplicaState(proposal, accepted, value == null ? null : Arrays.copyOf(value, value.length));
                 list.add(update);
                 return true;
