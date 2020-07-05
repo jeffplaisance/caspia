@@ -25,11 +25,11 @@ public class LocalRegisterReplicaClient implements RegisterReplicaClient {
     }
 
     private void doNemesis() throws Exception {
-        if (random.nextDouble() < failureProbability) throw new Exception();
         if (random.nextDouble() < delayProbability) {
             int delay = random.nextInt(delayNs) + 1;
             if (delay > 0) Thread.sleep(delay / 1000000, delay % 1000000);
         }
+        if (random.nextDouble() < failureProbability) throw new Exception();
     }
 
     @Override
