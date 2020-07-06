@@ -123,7 +123,7 @@ public final class LogClient {
      * @param index the index
      * @param initialValues the initial values
      * @param newProposal the proposal number to try, must be greater than all proposal numbers in initialValues
-     * @return list of booleans indexed on replica corresponding to whether or not propose succeeded on that replica
+     * @return list containing state of each replica where propose succeeded or empty if propose failed
      * @throws Exception if successful on less than a quorum or replicas
      */
     private List<Optional<LogReplicaState>> doPropose(long index, List<LogReplicaState> initialValues, int newProposal) throws Exception {
@@ -151,8 +151,7 @@ public final class LogClient {
      * @param index the index
      * @param value the value to attempt to write at index
      * @param newProposal the proposal number for which we successfully updated a quorum of replicas
-     * @param proposeResponses list of booleans indexed on replica corresponding to whether or not propose succeeded on
-     * that replica
+     * @param proposeResponses list containing state of each replica where propose succeeded or empty if propose failed
      * @return the value that was written. reference equality of return value and input value is guaranteed if input
      * value was the value written.
      * @throws Exception if successful on less than a quorum or replicas
