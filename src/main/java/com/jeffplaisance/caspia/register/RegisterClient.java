@@ -186,9 +186,8 @@ public final class RegisterClient<T> {
                 .<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>>map(state -> {
                     if (state.isPresent()) {
                         return replica -> replica.writeAtomic(id, nextState, false, state.get());
-                    } else {
-                        return replica -> false;
                     }
+                    return replica -> false;
                 })
                 .collect(Collectors.toList());
         List<Boolean> acceptResponses = Quorum.broadcast(replicas, n-f, acceptFunctions, Boolean.FALSE);
