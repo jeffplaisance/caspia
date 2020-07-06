@@ -12,15 +12,15 @@ public final class Quorum {
 
     private static final ExecutorService threadPool = Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("broadcast-thread-%d").setDaemon(false).build());
 
-    public static <A,R> List<R> broadcast(List<A> replicas, int minSuccessful, final ThrowingFunction<A, R, Exception> function, R failureResponse) throws Exception {
+    public static <A, R, E extends Exception> List<R> broadcast(List<A> replicas, int minSuccessful, final ThrowingFunction<A, R, E> function, R failureResponse) throws Exception {
         return broadcast(replicas, minSuccessful, Collections.nCopies(replicas.size(), function), failureResponse);
     }
 
-    public static <A,R> List<R> broadcast(List<A> replicas, int minSuccessful, final List<ThrowingFunction<A, R, Exception>> functions, R failureResponse) throws Exception {
+    public static <A, R, E extends Exception> List<R> broadcast(List<A> replicas, int minSuccessful, final List<ThrowingFunction<A, R, E>> functions, R failureResponse) throws Exception {
         return broadcast(replicas, minSuccessful, Collections.nCopies(replicas.size(), Boolean.TRUE), functions, failureResponse);
     }
 
-    public static <A,R> List<R> broadcast(List<A> replicas, int minSuccessful, final List<Boolean> recipients, final List<ThrowingFunction<A, R, Exception>> functions, R failureResponse) throws Exception {
+    public static <A, R, E extends Exception> List<R> broadcast(List<A> replicas, int minSuccessful, final List<Boolean> recipients, final List<ThrowingFunction<A, R, E>> functions, R failureResponse) throws Exception {
         final AtomicReferenceArray<R> results = new AtomicReferenceArray<>(replicas.size());
         final ExecutorCompletionService<R> completionService = new ExecutorCompletionService<>(threadPool);
         final List<Future<R>> futures = new ArrayList<>();

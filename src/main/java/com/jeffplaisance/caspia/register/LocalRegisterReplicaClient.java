@@ -39,17 +39,15 @@ public class LocalRegisterReplicaClient implements RegisterReplicaClient {
     }
 
     @Override
-    public boolean compareAndSet(Object id, long proposal, long accepted, byte[] value, long[] replicas, byte quorumModified, long changedReplica, long expect_proposal, long expect_accepted) throws Exception {
+    public boolean compareAndSet(Object id, RegisterReplicaState update, RegisterReplicaState expect) throws Exception {
         doNemesis();
-        final RegisterReplicaState update = new RegisterReplicaState(proposal, accepted, value, replicas, quorumModified, changedReplica);
-        final RegisterReplicaState current = state.computeIfPresent(id, (k, v) -> v.getAccepted() == expect_accepted && v.getProposal() == expect_proposal ? update : v);
+        final RegisterReplicaState current = state.computeIfPresent(id, (k, v) -> v.getAccepted() == expect.getAccepted() && v.getProposal() == expect.getProposal() ? update : v);
         return update == current;
     }
 
     @Override
-    public boolean putIfAbsent(Object id, long proposal, long accepted, byte[] value, long[] replicas, byte quorumModified, long changedReplica) throws Exception {
+    public boolean putIfAbsent(Object id, RegisterReplicaState update) throws Exception {
         doNemesis();
-        final RegisterReplicaState update = new RegisterReplicaState(proposal, accepted, value, replicas, quorumModified, changedReplica);
         return null == state.putIfAbsent(id, update);
     }
 

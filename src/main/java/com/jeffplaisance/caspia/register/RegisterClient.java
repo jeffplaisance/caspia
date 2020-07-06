@@ -14,7 +14,6 @@ import javax.annotation.Nullable;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 public final class RegisterClient<T> {
     private static final Logger LOG = LoggerFactory.getLogger(RegisterClient.class);
@@ -29,8 +28,7 @@ public final class RegisterClient<T> {
     private final Object id;
 
     private boolean fastPath = false;
-    private long fastPathProposal = 0;
-    private T fastPathPreviousValue = null;
+    private RegisterReplicaState fastPathPreviousState;
 
     public RegisterClient(List<Long> replicas, Function<Long, ? extends RegisterReplicaClient> replicaLoader, Transcoder<T> transcoder, Object id) {
 
@@ -42,16 +40,15 @@ public final class RegisterClient<T> {
         f = Base.lessThanHalf(n);
     }
 
-    private void enableFastPath(long fastPathProposal, T fastPathPreviousValue, ReplicaUpdate replicaUpdate) {
+    private void enableFastPath(RegisterReplicaState nextState) {
         fastPath = true;
-        this.fastPathProposal = fastPathProposal;
-        this.fastPathPreviousValue = fastPathPreviousValue;
-        if (replicaUpdate.getType() != ReplicaUpdate.UNMODIFIED) {
-            if (replicaUpdate.getType() == ReplicaUpdate.REPLICA_REMOVED) {
-                replicas = replicas.stream().filter(x -> x.getReplicaId() != replicaUpdate.getChangedReplica()).collect(Collectors.toList());
-            } else if (replicaUpdate.getType() == ReplicaUpdate.REPLICA_ADDED) {
-                if (replicas.stream().noneMatch(x -> x.getReplicaId() == replicaUpdate.getChangedReplica())) {
-                    replicas.add(replicaLoader.apply(replicaUpdate.getChangedReplica()));
+        this.fastPathPreviousState = nextState;
+        if (nextState.getQuorumModified() != ReplicaUpdate.UNMODIFIED) {
+            if (nextState.getQuorumModified() == ReplicaUpdate.REPLICA_REMOVED) {
+                replicas = replicas.stream().filter(x -> x.getReplicaId() != nextState.getChangedReplica()).collect(Collectors.toList());
+            } else if (nextState.getQuorumModified() == ReplicaUpdate.REPLICA_ADDED) {
+                if (replicas.stream().noneMatch(x -> x.getReplicaId() == nextState.getChangedReplica())) {
+                    replicas.add(replicaLoader.apply(nextState.getChangedReplica()));
                 }
             }
             n = replicas.size();
@@ -74,32 +71,33 @@ public final class RegisterClient<T> {
     private ValueAndReplicaUpdate<T> write(Function<T, T> updateValue, Function<List<Long>, ReplicaUpdate> updateReplicas) throws Exception {
         if (fastPath) {
             try {
-                final T next = updateValue.apply(fastPathPreviousValue);
+                final byte[] previousValue = fastPathPreviousState.getValue();
+                final T next = updateValue.apply(previousValue == null ? null : transcoder.fromBytes(previousValue));
                 final List<Long> replicaIds = replicas.stream().map(RegisterReplicaClient::getReplicaId).collect(Collectors.toList());
                 final ReplicaUpdate replicaUpdate = updateReplicas.apply(replicaIds);
                 final byte[] value = next == null ? null : transcoder.toBytes(next);
-                final List<Boolean> responses = Quorum.broadcast(replicas, n - f, replica -> replica.writeAtomic(
-                        id,
-                        fastPathProposal + 1,
-                        fastPathProposal,
+                final RegisterReplicaState nextState = new RegisterReplicaState(
+                        fastPathPreviousState.getProposal()+1,
+                        fastPathPreviousState.getProposal(),
                         value,
                         Longs.toArray(replicaIds),
                         replicaUpdate.getType(),
-                        replicaUpdate.getChangedReplica(),
+                        replicaUpdate.getChangedReplica());
+                final List<Boolean> responses = Quorum.broadcast(replicas, n - f, replica -> replica.writeAtomic(
+                        id,
+                        nextState,
                         false,
-                        fastPathProposal,
-                        fastPathProposal - 1),
+                        fastPathPreviousState),
                         false);
                 if (Base.sum(responses) >= n - f) {
-                    enableFastPath(fastPathProposal + 1, next, replicaUpdate);
+                    enableFastPath(nextState);
                     return new ValueAndReplicaUpdate<>(next, replicaUpdate);
                 } else {
                     throw new Exception();
                 }
             } catch (Throwable t) {
                 fastPath = false;
-                fastPathProposal = 0;
-                fastPathPreviousValue = null;
+                fastPathPreviousState = null;
                 Throwables.propagateIfInstanceOf(t, Exception.class);
                 throw Throwables.propagate(t);
             }
@@ -128,36 +126,37 @@ public final class RegisterClient<T> {
 
     private ValueAndReplicaUpdate<T> write2(Function<T, T> update, Function<List<Long>, ReplicaUpdate> updateReplicas, List<RegisterReplicaState> initialValues) throws Exception {
         final long newProposal = initialValues.stream().map(RegisterReplicaState::getProposal).reduce(1L, Math::max)+1;
-        final List<Boolean> proposeResponses = doPropose(initialValues, newProposal);
-        return doAccept(update, updateReplicas, initialValues, newProposal, proposeResponses);
+        final List<Optional<RegisterReplicaState>> proposeResponses = doPropose(initialValues, newProposal);
+        return doAccept(update, updateReplicas, newProposal, proposeResponses);
     }
 
-    private List<Boolean> doPropose(List<RegisterReplicaState> initialValues, long newProposal) throws Exception {
-        final List<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>> proposeFunctions = initialValues.stream()
-                .<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>>map(
-                        response -> (replica -> replica.writeAtomic(
-                                id,
-                                newProposal,
-                                response.getAccepted(),
-                                response.getValue(),
-                                response.getReplicas() != null ? response.getReplicas() : new long[0],
-                                response.getQuorumModified(),
-                                response.getChangedReplica(),
-                                response.getProposal() == 0,
-                                response.getProposal(),
-                                response.getAccepted())))
+    private List<Optional<RegisterReplicaState>> doPropose(List<RegisterReplicaState> initialValues, long newProposal) throws Exception {
+        final List<ThrowingFunction<RegisterReplicaClient, Optional<RegisterReplicaState>, Exception>> proposeFunctions = initialValues.stream()
+                .<ThrowingFunction<RegisterReplicaClient, Optional<RegisterReplicaState>, Exception>>map(
+                        response -> (replica -> {
+                            final RegisterReplicaState nextState = new RegisterReplicaState(
+                                    newProposal,
+                                    response.getAccepted(),
+                                    response.getValue(),
+                                    response.getReplicas() != null ? response.getReplicas() : new long[0],
+                                    response.getQuorumModified(),
+                                    response.getChangedReplica());
+                            if (replica.writeAtomic(id, nextState,response.getProposal() == 0, response)) {
+                                return Optional.of(nextState);
+                            }
+                            return Optional.empty();
+                        }))
                 .collect(Collectors.toList());
-        final List<Boolean> proposeResponses = Quorum.broadcast(replicas, n-f, proposeFunctions, false);
-        if (Base.sum(proposeResponses) < n-f) {
+        final List<Optional<RegisterReplicaState>> proposeResponses = Quorum.broadcast(replicas, n-f, proposeFunctions, Optional.empty());
+        if (proposeResponses.stream().filter(Optional::isPresent).count() < n-f) {
             throw new Exception();
         }
         return proposeResponses;
     }
 
-    private ValueAndReplicaUpdate<T> doAccept(Function<T, T> update, Function<List<Long>, ReplicaUpdate> updateReplicas, List<RegisterReplicaState> initialValues, long newProposal, List<Boolean> proposeResponses) throws Exception {
-        final RegisterReplicaState maxInitial = IntStream.range(0, initialValues.size())
-                .filter(proposeResponses::get)
-                .mapToObj(initialValues::get)
+    private ValueAndReplicaUpdate<T> doAccept(Function<T, T> update, Function<List<Long>, ReplicaUpdate> updateReplicas, long newProposal, List<Optional<RegisterReplicaState>> proposeResponses) throws Exception {
+        final RegisterReplicaState maxInitial = proposeResponses.stream()
+                .flatMap(Base::toStream)
                 .max(MAX_ACCEPTED)
                 .orElse(RegisterReplicaState.EMPTY);
         final byte[] maxValue = maxInitial.getValue();
@@ -175,25 +174,28 @@ public final class RegisterClient<T> {
             throw new IllegalStateException();
         }
         final long nextFastPathProposal = newProposal + 1;
-        final List<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>> acceptFunctions = initialValues.stream()
-                .<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>>map(
-                        response -> (replica -> replica.writeAtomic(
-                                id,
-                                nextFastPathProposal,
-                                newProposal,
-                                nextValue,
-                                Longs.toArray(replicaIds),
-                                replicaUpdate.getType(),
-                                replicaUpdate.getChangedReplica(),
-                                false,
-                                newProposal,
-                                response.getAccepted())))
+        final RegisterReplicaState nextState = new RegisterReplicaState(
+                nextFastPathProposal,
+                newProposal,
+                nextValue,
+                Longs.toArray(replicaIds),
+                replicaUpdate.getType(),
+                replicaUpdate.getChangedReplica()
+        );
+        final List<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>> acceptFunctions = proposeResponses.stream()
+                .<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>>map(state -> {
+                    if (state.isPresent()) {
+                        return replica -> replica.writeAtomic(id, nextState, false, state.get());
+                    } else {
+                        return replica -> false;
+                    }
+                })
                 .collect(Collectors.toList());
-        List<Boolean> acceptResponses = Quorum.broadcast(replicas, n-f, proposeResponses, acceptFunctions, Boolean.FALSE);
+        List<Boolean> acceptResponses = Quorum.broadcast(replicas, n-f, acceptFunctions, Boolean.FALSE);
         if (Base.sum(acceptResponses) < n-f) {
             throw new Exception();
         }
-        enableFastPath(nextFastPathProposal, next, replicaUpdate);
+        enableFastPath(nextState);
         return new ValueAndReplicaUpdate<>(next, replicaUpdate);
     }
 

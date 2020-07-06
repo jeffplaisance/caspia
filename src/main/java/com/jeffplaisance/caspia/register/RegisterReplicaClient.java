@@ -8,47 +8,30 @@ public interface RegisterReplicaClient extends Closeable {
 
     default boolean writeAtomic(
             Object id,
-            long proposal,
-            long accepted,
-            byte[] value,
-            long[] replicas,
-            byte quorumModified,
-            long changedReplica,
+            RegisterReplicaState update,
             boolean expect_absent,
-            long expect_proposal,
-            long expect_accepted
+            RegisterReplicaState expect
     ) throws Exception {
         if (expect_absent) {
-            return putIfAbsent(id, proposal, accepted, value, replicas, quorumModified, changedReplica);
+            return putIfAbsent(id, update);
         } else {
-            return compareAndSet(id, proposal, accepted, value, replicas, quorumModified, changedReplica, expect_proposal, expect_accepted);
+            return compareAndSet(id, update, expect);
         }
     }
 
     default boolean compareAndSet(
             Object id,
-            long proposal,
-            long accepted,
-            byte[] value,
-            long[] replicas,
-            byte quorumModified,
-            long changedReplica,
-            long expect_proposal,
-            long expect_accepted
+            RegisterReplicaState update,
+            RegisterReplicaState expect
     ) throws Exception {
-        return writeAtomic(id, proposal, accepted, value, replicas, quorumModified, changedReplica, false, expect_proposal, expect_accepted);
+        return writeAtomic(id, update, false, expect);
     }
 
     default boolean putIfAbsent(
             Object id,
-            long proposal,
-            long accepted,
-            byte[] value,
-            long[] replicas,
-            byte quorumModified,
-            long changedReplica
+            RegisterReplicaState update
     ) throws Exception {
-        return writeAtomic(id, proposal, accepted, value, replicas, quorumModified, changedReplica, true, 0, 0);
+        return writeAtomic(id, update, true, RegisterReplicaState.EMPTY);
     }
 
     long getReplicaId();

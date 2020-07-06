@@ -89,39 +89,39 @@ public final class JDBCRegisterReplicaClient implements RegisterReplicaClient {
     }
 
     @Override
-    public boolean compareAndSet(Object id, long proposal, long accepted, byte[] value, long[] replicas, byte quorumModified, long changedReplica, long expectProposal, long expectAccepted) throws Exception {
+    public boolean compareAndSet(Object id, RegisterReplicaState update, RegisterReplicaState expect) throws Exception {
         if (!enabled) throw new IOException();
         try (
                 final Connection c = ds.getConnection();
                 PreparedStatement ps = c.prepareStatement("update "+table+" set proposal = ?, accepted = ?, val = ?, replicas = ?, quorum_modified = ?, changed_replica = ? where id = ? AND proposal = ? AND accepted = ?")
         ) {
-            ps.setLong(1, proposal);
-            ps.setLong(2, accepted);
-            ps.setBytes(3, value);
-            ps.setBytes(4, serialize(replicas));
-            ps.setByte(5, quorumModified);
-            ps.setLong(6, changedReplica);
+            ps.setLong(1, update.getProposal());
+            ps.setLong(2, update.getAccepted());
+            ps.setBytes(3, update.getValue());
+            ps.setBytes(4, serialize(update.getReplicas()));
+            ps.setByte(5, update.getQuorumModified());
+            ps.setLong(6, update.getChangedReplica());
             ps.setObject(7, id);
-            ps.setLong(8, expectProposal);
-            ps.setLong(9, expectAccepted);
+            ps.setLong(8, expect.getProposal());
+            ps.setLong(9, expect.getAccepted());
             return ps.executeUpdate() > 0;
         }
     }
 
     @Override
-    public boolean putIfAbsent(Object id, long proposal, long accepted, byte[] value, long[] replicas, byte quorumModified, long changedReplica) throws Exception {
+    public boolean putIfAbsent(Object id, RegisterReplicaState update) throws Exception {
         if (!enabled) throw new IOException();
         try (
                 final Connection c = ds.getConnection();
                 PreparedStatement ps = c.prepareStatement("insert ignore into "+table+" (id, proposal, accepted, val, replicas, quorum_modified, changed_replica) values (?, ?, ?, ?, ?, ?, ?)")
         ) {
             ps.setObject(1, id);
-            ps.setLong(2, proposal);
-            ps.setLong(3, accepted);
-            ps.setBytes(4, value);
-            ps.setBytes(5, serialize(replicas));
-            ps.setByte(6, quorumModified);
-            ps.setLong(7, changedReplica);
+            ps.setLong(2, update.getProposal());
+            ps.setLong(3, update.getAccepted());
+            ps.setBytes(4, update.getValue());
+            ps.setBytes(5, serialize(update.getReplicas()));
+            ps.setByte(6, update.getQuorumModified());
+            ps.setLong(7, update.getChangedReplica());
             return ps.executeUpdate() > 0;
         }
     }
