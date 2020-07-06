@@ -169,15 +169,13 @@ public final class LogClient {
 
         final LogReplicaState nextState = new LogReplicaState(newProposal, newProposal, valueWritten);
         // attempt to update accepted to newProposal and value to valueWritten on replicas where propose succeeded
-        final List<ThrowingFunction<LogReplicaClient, Boolean, Exception>> acceptFunctions = proposeResponses.stream()
-                .<ThrowingFunction<LogReplicaClient, Boolean, Exception>>map(state -> {
-                    if (state.isPresent()) {
-                        return replica -> replica.writeAtomic(index, nextState, false, state.get());
-                    }
-                    return replica -> false;
-                })
+        final List<Optional<ThrowingFunction<LogReplicaClient, Boolean, Exception>>> acceptFunctions = proposeResponses.stream()
+                .map(optional -> optional
+                        .<ThrowingFunction<LogReplicaClient, Boolean, Exception>>map(state ->
+                                replica -> replica.writeAtomic(index, nextState, false, state)
+                        ))
                 .collect(Collectors.toList());
-        List<Boolean> acceptResponses = Quorum.broadcast(replicas, n-f, acceptFunctions, Boolean.FALSE);
+        List<Boolean> acceptResponses = Quorum.broadcast2(replicas, n-f, acceptFunctions, Boolean.FALSE);
 
         // check for success on a quorum of replicas, return valueWritten on success and throw exception on failure
         if (Base.sum(acceptResponses) < n-f) {

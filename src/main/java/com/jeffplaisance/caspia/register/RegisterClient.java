@@ -182,15 +182,13 @@ public final class RegisterClient<T> {
                 replicaUpdate.getType(),
                 replicaUpdate.getChangedReplica()
         );
-        final List<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>> acceptFunctions = proposeResponses.stream()
-                .<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>>map(state -> {
-                    if (state.isPresent()) {
-                        return replica -> replica.writeAtomic(id, nextState, false, state.get());
-                    }
-                    return replica -> false;
-                })
+        final List<Optional<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>>> acceptFunctions = proposeResponses.stream()
+                .map(optional -> optional
+                        .<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>>map(state ->
+                                replica -> replica.writeAtomic(id, nextState, false, state)
+                        ))
                 .collect(Collectors.toList());
-        List<Boolean> acceptResponses = Quorum.broadcast(replicas, n-f, acceptFunctions, Boolean.FALSE);
+        List<Boolean> acceptResponses = Quorum.broadcast2(replicas, n-f, acceptFunctions, Boolean.FALSE);
         if (Base.sum(acceptResponses) < n-f) {
             throw new Exception();
         }

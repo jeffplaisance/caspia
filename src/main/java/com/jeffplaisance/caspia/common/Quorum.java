@@ -5,8 +5,10 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReferenceArray;
+import java.util.stream.Collectors;
 
 public final class Quorum {
 
@@ -17,20 +19,20 @@ public final class Quorum {
     }
 
     public static <A, R, E extends Exception> List<R> broadcast(List<A> replicas, int minSuccessful, final List<ThrowingFunction<A, R, E>> functions, R failureResponse) throws Exception {
-        return broadcast(replicas, minSuccessful, Collections.nCopies(replicas.size(), Boolean.TRUE), functions, failureResponse);
+        return broadcast2(replicas, minSuccessful, functions.stream().map(Optional::of).collect(Collectors.toList()), failureResponse);
     }
 
-    public static <A, R, E extends Exception> List<R> broadcast(List<A> replicas, int minSuccessful, final List<Boolean> recipients, final List<ThrowingFunction<A, R, E>> functions, R failureResponse) throws Exception {
+    public static <A, R, E extends Exception> List<R> broadcast2(List<A> replicas, int minSuccessful, final List<Optional<ThrowingFunction<A, R, E>>> functions, R failureResponse) throws Exception {
         final AtomicReferenceArray<R> results = new AtomicReferenceArray<>(replicas.size());
         final ExecutorCompletionService<R> completionService = new ExecutorCompletionService<>(threadPool);
         final List<Future<R>> futures = new ArrayList<>();
         try {
-            final int numRecipients = Collections.frequency(recipients, Boolean.TRUE);
+            final int numRecipients = (int)functions.stream().filter(Optional::isPresent).count();
             for (int i = 0; i < replicas.size(); i++) {
-                if (recipients.get(i)) {
+                if (functions.get(i).isPresent()) {
                     final int replicaIndex = i;
                     futures.add(completionService.submit(() -> {
-                        R result = functions.get(replicaIndex).apply(replicas.get(replicaIndex));
+                        R result = functions.get(replicaIndex).get().apply(replicas.get(replicaIndex));
                         results.set(replicaIndex, result);
                         return result;
                     }));
