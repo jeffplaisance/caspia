@@ -6,36 +6,30 @@ public interface LogReplicaClient {
 
     default boolean writeAtomic(
             long id,
-            int proposal,
-            int accepted,
-            byte[] value,
+            LogReplicaState update,
             boolean expect_absent,
             LogReplicaState expect
     ) throws Exception {
         if (expect_absent) {
-            return putIfAbsent(id, proposal, accepted, value);
+            return putIfAbsent(id, update);
         } else {
-            return compareAndSet(id, proposal, accepted, value, expect);
+            return compareAndSet(id, update, expect);
         }
     }
 
     default boolean compareAndSet(
             long id,
-            int proposal,
-            int accepted,
-            byte[] value,
+            LogReplicaState update,
             LogReplicaState expect
     ) throws Exception {
-        return writeAtomic(id, proposal, accepted, value, false, expect);
+        return writeAtomic(id, update, false, expect);
     }
 
     default boolean putIfAbsent(
             long id,
-            int proposal,
-            int accepted,
-            byte[] value
+            LogReplicaState update
     ) throws Exception {
-        return writeAtomic(id, proposal, accepted, value, true, LogReplicaState.EMPTY);
+        return writeAtomic(id, update, true, LogReplicaState.EMPTY);
     }
 
     long readLastIndex() throws Exception;

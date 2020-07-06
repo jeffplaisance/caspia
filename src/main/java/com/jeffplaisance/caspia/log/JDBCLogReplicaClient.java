@@ -33,15 +33,15 @@ public final class JDBCLogReplicaClient implements LogReplicaClient {
     }
 
     @Override
-    public boolean compareAndSet(long id, int proposal, int accepted, byte[] value, LogReplicaState expect) throws Exception {
+    public boolean compareAndSet(long id, LogReplicaState update, LogReplicaState expect) throws Exception {
         if (!enabled) throw new IOException();
         try (
                 final Connection c = ds.getConnection();
                 PreparedStatement ps = c.prepareStatement("update "+table+" set proposal = ?, accepted = ?, val = ? where id = ? AND proposal = ? AND accepted = ?")
         ) {
-            ps.setInt(1, proposal);
-            ps.setInt(2, accepted);
-            ps.setBytes(3, value);
+            ps.setInt(1, update.getProposal());
+            ps.setInt(2, update.getAccepted());
+            ps.setBytes(3, update.getValue());
             ps.setLong(4, id);
             ps.setInt(5, expect.getProposal());
             ps.setInt(6, expect.getAccepted());
@@ -50,16 +50,16 @@ public final class JDBCLogReplicaClient implements LogReplicaClient {
     }
 
     @Override
-    public boolean putIfAbsent(long id, int proposal, int accepted, byte[] value) throws Exception {
+    public boolean putIfAbsent(long id, LogReplicaState update) throws Exception {
         if (!enabled) throw new IOException();
         try (
                 final Connection c = ds.getConnection();
                 PreparedStatement ps = c.prepareStatement("insert ignore into "+table+" (id, proposal, accepted, val) values (?, ?, ?, ?)")
         ) {
             ps.setLong(1, id);
-            ps.setInt(2, proposal);
-            ps.setInt(3, accepted);
-            ps.setBytes(4, value);
+            ps.setInt(2, update.getProposal());
+            ps.setInt(3, update.getAccepted());
+            ps.setBytes(4, update.getValue());
             return ps.executeUpdate() > 0;
         }
     }

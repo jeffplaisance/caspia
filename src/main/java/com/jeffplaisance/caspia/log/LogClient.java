@@ -15,8 +15,8 @@ import javax.annotation.concurrent.NotThreadSafe;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 @NotThreadSafe
 public final class LogClient {
@@ -27,8 +27,8 @@ public final class LogClient {
     private static final boolean oneRoundTripReadsEnabled;
 
     static {
-        fastPathEnabled = !Boolean.getBoolean("com.jeffplaisance.caspia.disableFastPath");
-        oneRoundTripReadsEnabled = !Boolean.getBoolean("com.jeffplaisance.caspia.disableOneRoundTripRead");
+        fastPathEnabled = !Boolean.getBoolean("com.jeffplaisance.caspia.log.disableFastPath");
+        oneRoundTripReadsEnabled = !Boolean.getBoolean("com.jeffplaisance.caspia.log.disableOneRoundTripRead");
     }
 
     private final List<LogReplicaClient> replicas;
@@ -79,7 +79,7 @@ public final class LogClient {
             // any competing proposer will start at proposal number 2 and block fast path
             try {
                 if (index == fastPathIndex) {
-                    final List<Boolean> responses = Quorum.broadcast(replicas, n - f, replica -> replica.writeAtomic(index, 1, 1, value, true, LogReplicaState.EMPTY), false);
+                    final List<Boolean> responses = Quorum.broadcast(replicas, n - f, replica -> replica.writeAtomic(index, new LogReplicaState(1, 1, value), true, LogReplicaState.EMPTY), false);
                     if (Base.sum(responses) >= n - f) {
                         fastPathIndex = index + 1;
                         return true;
@@ -115,8 +115,8 @@ public final class LogClient {
 
         // lowest possible value for newProposal is 2 since 1 is reserved for fast path
         final int newProposal = initialValues.stream().map(LogReplicaState::getProposal).reduce(1, Math::max)+1;
-        final List<Boolean> proposeResponses = doPropose(index, initialValues, newProposal);
-        return doAccept(index, value, initialValues, newProposal, proposeResponses);
+        final List<Optional<LogReplicaState>> proposeResponses = doPropose(index, initialValues, newProposal);
+        return doAccept(index, value, newProposal, proposeResponses);
     }
 
     /**
@@ -126,22 +126,22 @@ public final class LogClient {
      * @return list of booleans indexed on replica corresponding to whether or not propose succeeded on that replica
      * @throws Exception if successful on less than a quorum or replicas
      */
-    private List<Boolean> doPropose(long index, List<LogReplicaState> initialValues, int newProposal) throws Exception {
+    private List<Optional<LogReplicaState>> doPropose(long index, List<LogReplicaState> initialValues, int newProposal) throws Exception {
         // attempt to increase proposal to newProposal on all replicas leaving all other fields the same
-        final List<ThrowingFunction<LogReplicaClient, Boolean, Exception>> proposeFunctions = initialValues.stream()
-                .<ThrowingFunction<LogReplicaClient, Boolean, Exception>>map(
-                        response -> (replica -> replica.writeAtomic(
-                                index,
-                                newProposal,
-                                response.getAccepted(),
-                                response.getValue(),
-                                response.getProposal() == 0,
-                                response)))
+        final List<ThrowingFunction<LogReplicaClient, Optional<LogReplicaState>, Exception>> proposeFunctions = initialValues.stream()
+                .<ThrowingFunction<LogReplicaClient, Optional<LogReplicaState>, Exception>>map(
+                        response -> (replica -> {
+                            final LogReplicaState update = new LogReplicaState(newProposal, response.getAccepted(), response.getValue());
+                            if (replica.writeAtomic(index, update, response.getProposal() == 0, response)) {
+                                return Optional.of(update);
+                            }
+                            return Optional.empty();
+                        }))
                 .collect(Collectors.toList());
-        final List<Boolean> proposeResponses = Quorum.broadcast(replicas, n-f, proposeFunctions, false);
+        final List<Optional<LogReplicaState>> proposeResponses = Quorum.broadcast(replicas, n-f, proposeFunctions, Optional.empty());
 
         // check for success on a quorum of replicas, throw exception on failure
-        if (Base.sum(proposeResponses) < n-f) {
+        if (proposeResponses.stream().filter(Optional::isPresent).count() < n-f) {
             throw new Exception();
         }
         return proposeResponses;
@@ -150,7 +150,6 @@ public final class LogClient {
     /**
      * @param index the index
      * @param value the value to attempt to write at index
-     * @param initialValues initial values
      * @param newProposal the proposal number for which we successfully updated a quorum of replicas
      * @param proposeResponses list of booleans indexed on replica corresponding to whether or not propose succeeded on
      * that replica
@@ -158,11 +157,10 @@ public final class LogClient {
      * value was the value written.
      * @throws Exception if successful on less than a quorum or replicas
      */
-    private @Nullable byte[] doAccept(long index, @Nullable byte[] value, List<LogReplicaState> initialValues, int newProposal, List<Boolean> proposeResponses) throws Exception {
+    private @Nullable byte[] doAccept(long index, @Nullable byte[] value, int newProposal, List<Optional<LogReplicaState>> proposeResponses) throws Exception {
         // find the response with the highest accepted number from the replicas where propose succeeded
-        final LogReplicaState maxInitial = IntStream.range(0, initialValues.size())
-                .filter(proposeResponses::get)
-                .mapToObj(initialValues::get)
+        final LogReplicaState maxInitial = proposeResponses.stream()
+                .flatMap(Base::toStream)
                 .max(MAX_ACCEPTED)
                 .orElse(LogReplicaState.EMPTY);
 
@@ -170,18 +168,17 @@ public final class LogClient {
         // if no value has been written we can write our own value
         final byte[] valueWritten = maxInitial.getValue() == null ? value : maxInitial.getValue();
 
+        final LogReplicaState nextState = new LogReplicaState(newProposal, newProposal, valueWritten);
         // attempt to update accepted to newProposal and value to valueWritten on replicas where propose succeeded
-        final List<ThrowingFunction<LogReplicaClient, Boolean, Exception>> acceptFunctions = initialValues.stream()
-                .<ThrowingFunction<LogReplicaClient, Boolean, Exception>>map(
-                        response -> (replica -> replica.writeAtomic(
-                                index,
-                                newProposal,
-                                newProposal,
-                                valueWritten,
-                                false,
-                                new LogReplicaState(newProposal, response.getAccepted(), response.getValue()))))
+        final List<ThrowingFunction<LogReplicaClient, Boolean, Exception>> acceptFunctions = proposeResponses.stream()
+                .<ThrowingFunction<LogReplicaClient, Boolean, Exception>>map(state -> {
+                    if (state.isPresent()) {
+                        return replica -> replica.writeAtomic(index, nextState, false, state.get());
+                    }
+                    return replica -> false;
+                })
                 .collect(Collectors.toList());
-        List<Boolean> acceptResponses = Quorum.broadcast(replicas, n-f, proposeResponses, acceptFunctions, Boolean.FALSE);
+        List<Boolean> acceptResponses = Quorum.broadcast(replicas, n-f, acceptFunctions, Boolean.FALSE);
 
         // check for success on a quorum of replicas, return valueWritten on success and throw exception on failure
         if (Base.sum(acceptResponses) < n-f) {

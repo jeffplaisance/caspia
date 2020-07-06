@@ -1,7 +1,6 @@
 package com.jeffplaisance.caspia.log;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 
@@ -47,7 +46,7 @@ public class LocalLogReplicaClient implements LogReplicaClient {
     }
 
     @Override
-    public boolean compareAndSet(long id, int proposal, int accepted, byte[] value, LogReplicaState expect) throws Exception {
+    public boolean compareAndSet(long id, LogReplicaState update, LogReplicaState expect) throws Exception {
         doNemesis();
         final List<LogReplicaState> list;
         synchronized (data) {
@@ -62,7 +61,6 @@ public class LocalLogReplicaClient implements LogReplicaClient {
         synchronized (list) {
             LogReplicaState current = list.get(list.size()-1);
             if (current.getAccepted() == expect.getAccepted() && current.getProposal() == expect.getProposal()) {
-                final LogReplicaState update = new LogReplicaState(proposal, accepted, value == null ? null : Arrays.copyOf(value, value.length));
                 list.add(update);
                 return true;
             }
@@ -71,10 +69,9 @@ public class LocalLogReplicaClient implements LogReplicaClient {
     }
 
     @Override
-    public boolean putIfAbsent(long id, int proposal, int accepted, byte[] value) throws Exception {
+    public boolean putIfAbsent(long id, LogReplicaState update) throws Exception {
         doNemesis();
         synchronized (data) {
-            final LogReplicaState update = new LogReplicaState(proposal, accepted, value == null ? null : Arrays.copyOf(value, value.length));
             List<LogReplicaState> list = new ArrayList<>();
             list.add(update);
             if (id < data.size()) {
