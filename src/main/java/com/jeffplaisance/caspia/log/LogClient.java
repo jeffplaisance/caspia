@@ -130,10 +130,10 @@ public final class LogClient {
         // attempt to increase proposal to newProposal on all replicas leaving all other fields the same
         final List<ThrowingFunction<LogReplicaClient, Optional<LogReplicaState>, Exception>> proposeFunctions = initialValues.stream()
                 .<ThrowingFunction<LogReplicaClient, Optional<LogReplicaState>, Exception>>map(
-                        response -> (replica -> {
-                            final LogReplicaState update = new LogReplicaState(newProposal, response.getAccepted(), response.getValue());
-                            if (replica.writeAtomic(index, update, response.getProposal() == 0, response)) {
-                                return Optional.of(update);
+                        state -> (replica -> {
+                            final LogReplicaState nextState = new LogReplicaState(newProposal, state.getAccepted(), state.getValue());
+                            if (replica.writeAtomic(index, nextState, state.getProposal() == 0, state)) {
+                                return Optional.of(nextState);
                             }
                             return Optional.empty();
                         }))

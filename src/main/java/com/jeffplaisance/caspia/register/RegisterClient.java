@@ -133,15 +133,15 @@ public final class RegisterClient<T> {
     private List<Optional<RegisterReplicaState>> doPropose(List<RegisterReplicaState> initialValues, long newProposal) throws Exception {
         final List<ThrowingFunction<RegisterReplicaClient, Optional<RegisterReplicaState>, Exception>> proposeFunctions = initialValues.stream()
                 .<ThrowingFunction<RegisterReplicaClient, Optional<RegisterReplicaState>, Exception>>map(
-                        response -> (replica -> {
+                        state -> (replica -> {
                             final RegisterReplicaState nextState = new RegisterReplicaState(
                                     newProposal,
-                                    response.getAccepted(),
-                                    response.getValue(),
-                                    response.getReplicas() != null ? response.getReplicas() : new long[0],
-                                    response.getQuorumModified(),
-                                    response.getChangedReplica());
-                            if (replica.writeAtomic(id, nextState,response.getProposal() == 0, response)) {
+                                    state.getAccepted(),
+                                    state.getValue(),
+                                    state.getReplicas() != null ? state.getReplicas() : new long[0],
+                                    state.getQuorumModified(),
+                                    state.getChangedReplica());
+                            if (replica.writeAtomic(id, nextState,state.getProposal() == 0, state)) {
                                 return Optional.of(nextState);
                             }
                             return Optional.empty();
