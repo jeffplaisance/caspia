@@ -83,11 +83,10 @@ public final class RegisterClient<T> {
                         Longs.toArray(replicaIds),
                         replicaUpdate.getType(),
                         replicaUpdate.getChangedReplica());
-                final List<Boolean> responses = Quorum.broadcast(replicas, n - f, replica -> replica.writeAtomic(
-                        id,
-                        nextState,
-                        false,
-                        fastPathPreviousState),
+                final List<Boolean> responses = Quorum.broadcast(
+                        replicas,
+                        n - f,
+                        createReplicaDoAccept(nextState, fastPathPreviousState),
                         false);
                 if (Base.sum(responses) >= n - f) {
                     enableFastPath(nextState);
@@ -132,26 +131,29 @@ public final class RegisterClient<T> {
 
     private List<Optional<RegisterReplicaState>> doPropose(List<RegisterReplicaState> initialValues, long newProposal) throws Exception {
         final List<ThrowingFunction<RegisterReplicaClient, Optional<RegisterReplicaState>, Exception>> proposeFunctions = initialValues.stream()
-                .<ThrowingFunction<RegisterReplicaClient, Optional<RegisterReplicaState>, Exception>>map(
-                        state -> (replica -> {
-                            final RegisterReplicaState nextState = new RegisterReplicaState(
-                                    newProposal,
-                                    state.getAccepted(),
-                                    state.getValue(),
-                                    state.getReplicas() != null ? state.getReplicas() : new long[0],
-                                    state.getQuorumModified(),
-                                    state.getChangedReplica());
-                            if (replica.writeAtomic(id, nextState,state.getProposal() == 0, state)) {
-                                return Optional.of(nextState);
-                            }
-                            return Optional.empty();
-                        }))
+                .map(state -> createReplicaDoPropose(newProposal, state))
                 .collect(Collectors.toList());
         final List<Optional<RegisterReplicaState>> proposeResponses = Quorum.broadcast(replicas, n-f, proposeFunctions, Optional.empty());
         if (proposeResponses.stream().filter(Optional::isPresent).count() < n-f) {
             throw new Exception();
         }
         return proposeResponses;
+    }
+
+    private ThrowingFunction<RegisterReplicaClient, Optional<RegisterReplicaState>, Exception> createReplicaDoPropose(long newProposal, RegisterReplicaState state) {
+        return replica -> {
+            final RegisterReplicaState nextState = new RegisterReplicaState(
+                    newProposal,
+                    state.getAccepted(),
+                    state.getValue(),
+                    state.getReplicas() != null ? state.getReplicas() : new long[0],
+                    state.getQuorumModified(),
+                    state.getChangedReplica());
+            if (replica.writeAtomic(id, nextState,state.getProposal() == 0, state)) {
+                return Optional.of(nextState);
+            }
+            return Optional.empty();
+        };
     }
 
     private ValueAndReplicaUpdate<T> doAccept(Function<T, T> update, Function<List<Long>, ReplicaUpdate> updateReplicas, long newProposal, List<Optional<RegisterReplicaState>> proposeResponses) throws Exception {
@@ -183,10 +185,7 @@ public final class RegisterClient<T> {
                 replicaUpdate.getChangedReplica()
         );
         final List<Optional<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>>> acceptFunctions = proposeResponses.stream()
-                .map(optional -> optional
-                        .<ThrowingFunction<RegisterReplicaClient, Boolean, Exception>>map(state ->
-                                replica -> replica.writeAtomic(id, nextState, false, state)
-                        ))
+                .map(optional -> optional.map(state -> createReplicaDoAccept(nextState, state)))
                 .collect(Collectors.toList());
         List<Boolean> acceptResponses = Quorum.broadcast2(replicas, n-f, acceptFunctions, Boolean.FALSE);
         if (Base.sum(acceptResponses) < n-f) {
@@ -194,6 +193,10 @@ public final class RegisterClient<T> {
         }
         enableFastPath(nextState);
         return new ValueAndReplicaUpdate<>(next, replicaUpdate);
+    }
+
+    private ThrowingFunction<RegisterReplicaClient, Boolean, Exception> createReplicaDoAccept(RegisterReplicaState nextState, RegisterReplicaState state) {
+        return replica -> replica.writeAtomic(id, nextState, false, state);
     }
 
     @Nullable

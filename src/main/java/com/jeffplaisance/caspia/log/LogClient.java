@@ -79,7 +79,15 @@ public final class LogClient {
             // any competing proposer will start at proposal number 2 and block fast path
             try {
                 if (index == fastPathIndex) {
-                    final List<Boolean> responses = Quorum.broadcast(replicas, n - f, replica -> replica.writeAtomic(index, new LogReplicaState(1, 1, value), true, LogReplicaState.EMPTY), false);
+                    final List<Boolean> responses = Quorum.broadcast(
+                            replicas,
+                            n - f,
+                            createReplicaDoAccept(
+                                    index,
+                                    new LogReplicaState(1, 1, value),
+                                    LogReplicaState.EMPTY,
+                                    true),
+                            false);
                     if (Base.sum(responses) >= n - f) {
                         fastPathIndex = index + 1;
                         return true;
@@ -129,14 +137,7 @@ public final class LogClient {
     private List<Optional<LogReplicaState>> doPropose(long index, List<LogReplicaState> initialValues, int newProposal) throws Exception {
         // attempt to increase proposal to newProposal on all replicas leaving all other fields the same
         final List<ThrowingFunction<LogReplicaClient, Optional<LogReplicaState>, Exception>> proposeFunctions = initialValues.stream()
-                .<ThrowingFunction<LogReplicaClient, Optional<LogReplicaState>, Exception>>map(
-                        state -> (replica -> {
-                            final LogReplicaState nextState = new LogReplicaState(newProposal, state.getAccepted(), state.getValue());
-                            if (replica.writeAtomic(index, nextState, state.getProposal() == 0, state)) {
-                                return Optional.of(nextState);
-                            }
-                            return Optional.empty();
-                        }))
+                .map(state -> makeReplicaDoPropose(index, newProposal, state))
                 .collect(Collectors.toList());
         final List<Optional<LogReplicaState>> proposeResponses = Quorum.broadcast(replicas, n-f, proposeFunctions, Optional.empty());
 
@@ -145,6 +146,16 @@ public final class LogClient {
             throw new Exception();
         }
         return proposeResponses;
+    }
+
+    private ThrowingFunction<LogReplicaClient, Optional<LogReplicaState>, Exception> makeReplicaDoPropose(long index, int newProposal, LogReplicaState state) {
+        return replica -> {
+            final LogReplicaState nextState = new LogReplicaState(newProposal, state.getAccepted(), state.getValue());
+            if (replica.writeAtomic(index, nextState, state.getProposal() == 0, state)) {
+                return Optional.of(nextState);
+            }
+            return Optional.empty();
+        };
     }
 
     /**
@@ -170,10 +181,7 @@ public final class LogClient {
         final LogReplicaState nextState = new LogReplicaState(newProposal, newProposal, valueWritten);
         // attempt to update accepted to newProposal and value to valueWritten on replicas where propose succeeded
         final List<Optional<ThrowingFunction<LogReplicaClient, Boolean, Exception>>> acceptFunctions = proposeResponses.stream()
-                .map(optional -> optional
-                        .<ThrowingFunction<LogReplicaClient, Boolean, Exception>>map(state ->
-                                replica -> replica.writeAtomic(index, nextState, false, state)
-                        ))
+                .map(optional -> optional.map(state -> createReplicaDoAccept(index, nextState, state, false)))
                 .collect(Collectors.toList());
         List<Boolean> acceptResponses = Quorum.broadcast2(replicas, n-f, acceptFunctions, Boolean.FALSE);
 
@@ -182,6 +190,10 @@ public final class LogClient {
             throw new Exception();
         }
         return valueWritten;
+    }
+
+    private ThrowingFunction<LogReplicaClient, Boolean, Exception> createReplicaDoAccept(long index, LogReplicaState nextState, LogReplicaState state, boolean expectAbsent) {
+        return replica -> replica.writeAtomic(index, nextState, expectAbsent, state);
     }
 
     /**
