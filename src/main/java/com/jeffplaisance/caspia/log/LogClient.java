@@ -137,7 +137,7 @@ public final class LogClient {
     private List<Optional<LogReplicaState>> doPropose(long index, List<LogReplicaState> initialValues, int newProposal) throws Exception {
         // attempt to increase proposal to newProposal on all replicas leaving all other fields the same
         final List<ThrowingFunction<LogReplicaClient, Optional<LogReplicaState>, Exception>> proposeFunctions = initialValues.stream()
-                .map(state -> makeReplicaDoPropose(index, newProposal, state))
+                .map(state -> createReplicaDoPropose(index, newProposal, state))
                 .collect(Collectors.toList());
         final List<Optional<LogReplicaState>> proposeResponses = Quorum.broadcast(replicas, n-f, proposeFunctions, Optional.empty());
 
@@ -148,7 +148,7 @@ public final class LogClient {
         return proposeResponses;
     }
 
-    private ThrowingFunction<LogReplicaClient, Optional<LogReplicaState>, Exception> makeReplicaDoPropose(long index, int newProposal, LogReplicaState state) {
+    private ThrowingFunction<LogReplicaClient, Optional<LogReplicaState>, Exception> createReplicaDoPropose(long index, int newProposal, LogReplicaState state) {
         return replica -> {
             final LogReplicaState nextState = new LogReplicaState(newProposal, state.getAccepted(), state.getValue());
             if (replica.writeAtomic(index, nextState, state.getProposal() == 0, state)) {

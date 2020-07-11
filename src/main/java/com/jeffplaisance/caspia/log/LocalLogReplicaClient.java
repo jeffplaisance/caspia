@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-public class LocalLogReplicaClient implements LogReplicaClient {
+public final class LocalLogReplicaClient implements LogReplicaClient {
 
     private final List<List<LogReplicaState>> data = new ArrayList<>();
     private final double failureProbability;
